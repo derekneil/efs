@@ -62,7 +62,7 @@ public class LassoFit {
     private int numFeatures;
 
     /**
-     *
+     * Constructor
      * @param numberOfLambdas
      * @param maxAllowedFeaturesAlongPath
      * @param numFeatures

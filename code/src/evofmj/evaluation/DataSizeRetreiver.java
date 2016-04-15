@@ -38,15 +38,16 @@ import java.nio.charset.Charset;
 public class DataSizeRetreiver {
     
     /**
-     *
-     * @param filepath
-     * @return
-     * @throws java.io.FileNotFoundException
+     * Counts number of features in csv file minus the last (assumes one 
+     * output variable)
+     * @param csvFilepath
+     * @return number of features
+     * @throws java.io.FileNotFoundException, IOException 
      */
-    public static int num_terminals(String filepath) throws FileNotFoundException, IOException {
-        BufferedReader f = new BufferedReader(new InputStreamReader(new FileInputStream(filepath), Charset.defaultCharset()));
+    public static int num_terminals(String csvFilepath) throws FileNotFoundException, IOException {
+        BufferedReader f = new BufferedReader(new InputStreamReader(new FileInputStream(csvFilepath), Charset.defaultCharset()));
         if (!f.ready()) {
-            System.err.println(String.format("Error: empty file %s", filepath));
+            System.err.println(String.format("Error: empty file %s", csvFilepath));
         }
         String[] tokens = f.readLine().split(",");
         f.close();
@@ -54,9 +55,9 @@ public class DataSizeRetreiver {
     }
 
     /**
-     *
+     * Count number of new lines (fitness cases) in file
      * @param filepath
-     * @return
+     * @return count
      */
     public static int num_fitness_cases(String filepath) {
         try {

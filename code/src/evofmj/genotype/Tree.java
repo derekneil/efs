@@ -161,8 +161,7 @@ public class Tree extends Genotype {
      * Programming", Vladislavleva 2008
      * @return 
      */
-    // TODO add back in smart memoization which handles recalculation
-    // upon crossover
+    //TODO add back in smart memoization which handles recalculation upon crossover
     public int getSubtreeComplexity() {
         subtreeComplexity = this.getRoot().getSubtreeComplexity();
         return subtreeComplexity;

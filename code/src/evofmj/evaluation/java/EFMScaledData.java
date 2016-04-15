@@ -15,11 +15,10 @@
  * SOFTWARE.  
  * 
  * @author Ignacio Arnaldo
- *
+ * @Author Derek Nheiley
  */
 package evofmj.evaluation.java;
 
-import evofmj.evaluation.DataSizeRetreiver;
 import java.io.BufferedReader;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -27,17 +26,20 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.Charset;
 import java.util.Random;
+import java.util.Set;
+import java.util.TreeSet;
+
+import evofmj.evaluation.DataSizeRetreiver;
 
 /**
  * This class stores the training data and the values of the composed features
- * @author Ignacio Arnaldo
  */
 public class EFMScaledData {
 	
-    // the number of fitness cases
+	// Maximum correlation allowed between new features and their parents
+	private final double CORR_THRESHOLD = 0.95;
+	
     private int numberOfFitnessCases;
-
-    // the number of features
     private int numberOfOriginalFeatures;
     
     // the number of evolved features added to the model
@@ -46,7 +48,7 @@ public class EFMScaledData {
     // the number of new features composed at each generation
     private int numberOfNewFeatures;
 
-    // the matrix composed of n number of exemplars * (numberOfOriginalFeatures+numberOfArchiveFeatures+numberOfNewFeatures)
+    // the matrix composed of n number of exemplars * (numberOfTotalFeatures)
     private final double[][] dataMatrix;
     
     // the string representation of features
@@ -55,19 +57,12 @@ public class EFMScaledData {
     // the size of the features: number of operators + number of variables included in the complex feature
     int[] featureSizes;
     
-    /**
-     * the true/target values
-     */
-    private final double[] target;
-
-    // minimum target value
+    private final double[] targets;
     private Double target_min;
-    
-    // maximum target value
     private Double target_max;
-       
-    // Maximum correlation allowed between new features and their parents
-    private double CORR_THRESHOLD = 0.95;
+    
+    private Set<Double> targetSet = new TreeSet<>();
+    private Integer numberOfDistinctTargets = null;
 
     /**
      * 
@@ -81,14 +76,13 @@ public class EFMScaledData {
         numberOfOriginalFeatures = DataSizeRetreiver.num_terminals(csvPath);
         numberOfArchiveFeatures = aNumberOfArchiveFeatures;
         numberOfNewFeatures = aNumberOfNewFeatures;
-        int totalNumberOfFeatures = numberOfOriginalFeatures + numberOfArchiveFeatures + numberOfNewFeatures;
-        dataMatrix = new double[numberOfFitnessCases][totalNumberOfFeatures];
-        featureStrings = new String[totalNumberOfFeatures];
-        for(int j=0;j<numberOfOriginalFeatures;j++){
+        dataMatrix = new double[numberOfFitnessCases][getNumberOfTotalFeatures()];
+        featureStrings = new String[getNumberOfTotalFeatures()];
+        for (int j=0;j<numberOfOriginalFeatures;j++) {
             featureStrings[j] = "X" + (j+1);
         }
-        featureSizes = new int[totalNumberOfFeatures];
-        this.target = new double[numberOfFitnessCases];
+        featureSizes = new int[getNumberOfTotalFeatures()];
+        targets = new double[numberOfFitnessCases];
         target_min = null;
         target_max = null;
         readCSV(csvPath);
@@ -103,7 +97,7 @@ public class EFMScaledData {
         numberOfFitnessCases = DataSizeRetreiver.num_fitness_cases(csvPath);
         numberOfOriginalFeatures = DataSizeRetreiver.num_terminals(csvPath);
         dataMatrix = new double[numberOfFitnessCases][numberOfOriginalFeatures];
-        this.target = new double[numberOfFitnessCases];
+        targets = new double[numberOfFitnessCases];
         target_min = null;
         target_max = null;
         readCSV(csvPath);
@@ -121,10 +115,10 @@ public class EFMScaledData {
         while (f.ready() && fitnessCaseIndex < numberOfFitnessCases) {
             token = f.readLine().split(",");
             for (int i = 0; i < token.length - 1; i++) {
-                this.dataMatrix[fitnessCaseIndex][i] = Double.valueOf(token[i]);
+                dataMatrix[fitnessCaseIndex][i] = Double.valueOf(token[i]);
             }
             double val = Double.valueOf(token[token.length - 1]);
-            addTargetValue(val, fitnessCaseIndex);
+            setTargetValue(val, fitnessCaseIndex);
             fitnessCaseIndex++;
         }
         f.close();
@@ -134,26 +128,26 @@ public class EFMScaledData {
      * Initialize the population of features
      * @param r random number generator
      */
-    public void fillInitialArchiveandNewFeatures(Random r){
-        for(int j=numberOfOriginalFeatures;j<numberOfOriginalFeatures+numberOfArchiveFeatures+numberOfNewFeatures;j++){
+    public void fillInitialArchiveandNewFeatures(Random r) {
+        for (int j=numberOfOriginalFeatures; j<getNumberOfTotalFeatures(); j++) {
             int indexOriginal = r.nextInt(numberOfOriginalFeatures);
             featureStrings[j] = featureStrings[indexOriginal];
-            for(int i=0;i<numberOfFitnessCases;i++){
+            for (int i=0; i<numberOfFitnessCases; i++) {
                 dataMatrix[i][j] = dataMatrix[i][indexOriginal];
             }
         }
-        for(int j=0;j<numberOfOriginalFeatures+numberOfArchiveFeatures+numberOfNewFeatures;j++){
+        for (int j=0; j<getNumberOfTotalFeatures(); j++) {
             featureSizes[j] = 1;
         }
     }
     
     /**
-     * add a target value
+     * set a target value at a given index
      * @param val
      * @param index
      */
-    protected void addTargetValue(double val,int index) {
-        this.target[index] = val;
+    protected void setTargetValue(double val,int index) {
+        targets[index] = val;
         if (target_min == null || val < target_min) {
             target_min = val;
         }
@@ -170,15 +164,15 @@ public class EFMScaledData {
      * @param indexParent1
      * @param indexParent2
      */
-    public void multiplication(int indexNewFeature,int indexParent1,int indexParent2){
+    public void multiplication(int indexNewFeature,int indexParent1,int indexParent2) {
         featureStrings[indexNewFeature] = "(* " + featureStrings[indexParent1] + " " + featureStrings[indexParent2] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = dataMatrix[i][indexParent1] * dataMatrix[i][indexParent2];
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + featureSizes[indexParent2] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,indexParent2);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -193,15 +187,15 @@ public class EFMScaledData {
      * @param indexParent1
      * @param indexParent2
      */
-    public void division(int indexNewFeature,int indexParent1,int indexParent2){
+    public void division(int indexNewFeature,int indexParent1,int indexParent2) {
         featureStrings[indexNewFeature] = "(mydivide " + featureStrings[indexParent1] + " " + featureStrings[indexParent2] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = dataMatrix[i][indexParent1] / dataMatrix[i][indexParent2];
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + featureSizes[indexParent2] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,indexParent2);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -216,15 +210,15 @@ public class EFMScaledData {
      * @param indexParent1
      * @param indexParent2
      */
-    public void sum(int indexNewFeature,int indexParent1,int indexParent2){
+    public void sum(int indexNewFeature,int indexParent1,int indexParent2) {
         featureStrings[indexNewFeature] = "(+ " + featureStrings[indexParent1] + " " + featureStrings[indexParent2] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = dataMatrix[i][indexParent1] + dataMatrix[i][indexParent2];
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + featureSizes[indexParent2] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,indexParent2);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -239,15 +233,15 @@ public class EFMScaledData {
      * @param indexParent1
      * @param indexParent2
      */
-    public void minus(int indexNewFeature,int indexParent1,int indexParent2){
+    public void minus(int indexNewFeature,int indexParent1,int indexParent2) {
         featureStrings[indexNewFeature] = "(- " + featureStrings[indexParent1] + " " + featureStrings[indexParent2] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = dataMatrix[i][indexParent1] - dataMatrix[i][indexParent2];
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + featureSizes[indexParent2] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,indexParent2);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -261,15 +255,15 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @param indexParent1
      */
-    public void log(int indexNewFeature,int indexParent1){
+    public void log(int indexNewFeature,int indexParent1) {
         featureStrings[indexNewFeature] = "(mylog " + featureStrings[indexParent1] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = Math.log(dataMatrix[i][indexParent1]);
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,-1);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -283,15 +277,15 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @param indexParent1
      */
-    public void exp(int indexNewFeature,int indexParent1){
+    public void exp(int indexNewFeature,int indexParent1) {
         featureStrings[indexNewFeature] = "(exp " + featureStrings[indexParent1] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = Math.exp(dataMatrix[i][indexParent1]);
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,-1);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -305,15 +299,15 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @param indexParent1
      */
-    public void sin(int indexNewFeature,int indexParent1){
+    public void sin(int indexNewFeature,int indexParent1) {
         featureStrings[indexNewFeature] = "(sin " + featureStrings[indexParent1] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = Math.sin(dataMatrix[i][indexParent1]);
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,-1);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -327,15 +321,15 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @param indexParent1
      */
-    public void cos(int indexNewFeature,int indexParent1){
+    public void cos(int indexNewFeature,int indexParent1) {
         featureStrings[indexNewFeature] = "(cos " + featureStrings[indexParent1] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = Math.cos(dataMatrix[i][indexParent1]);
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,-1);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -349,15 +343,15 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @param indexParent1
      */
-    public void sqrt(int indexNewFeature,int indexParent1){
+    public void sqrt(int indexNewFeature,int indexParent1) {
         featureStrings[indexNewFeature] = "(sqrt " + featureStrings[indexParent1] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = Math.sqrt(dataMatrix[i][indexParent1]);
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,-1);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -371,15 +365,15 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @param indexParent1
      */
-    public void square(int indexNewFeature,int indexParent1){
+    public void square(int indexNewFeature,int indexParent1) {
         featureStrings[indexNewFeature] = "(square " + featureStrings[indexParent1] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = Math.pow(dataMatrix[i][indexParent1],2);
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,-1);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -393,15 +387,15 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @param indexParent1
      */
-    public void cube(int indexNewFeature,int indexParent1){
+    public void cube(int indexNewFeature,int indexParent1) {
         featureStrings[indexNewFeature] = "(cube " + featureStrings[indexParent1] + ")";
-        if(isNewFeature(indexNewFeature)){
-            for(int i=0;i<numberOfFitnessCases;i++){
+        if(isNewFeature(indexNewFeature)) {
+            for (int i=0;i<numberOfFitnessCases;i++) {
                 dataMatrix[i][indexNewFeature] = Math.pow(dataMatrix[i][indexParent1],3);
             }
             featureSizes[indexNewFeature] = featureSizes[indexParent1] + 1;
             boolean valid = checkValidity(indexNewFeature,indexParent1,-1);
-            if(!valid){
+            if(!valid) {
                 setFeatureToZero(indexNewFeature);
             }
         }else{
@@ -414,11 +408,11 @@ public class EFMScaledData {
      * @param indexNewFeature
      * @return
      */
-    public boolean isNewFeature(int indexNewFeature){
+    public boolean isNewFeature(int indexNewFeature) {
         boolean isNew = true;
         String newFeatureString = featureStrings[indexNewFeature];
-        for(int i = numberOfOriginalFeatures; i<indexNewFeature;i++){
-            if(featureStrings[i].equals(newFeatureString)){
+        for (int i = numberOfOriginalFeatures; i<indexNewFeature;i++) {
+            if(featureStrings[i].equals(newFeatureString)) {
                 return false;
             }
         }
@@ -426,25 +420,26 @@ public class EFMScaledData {
     }
     
     /**
-     * copy a feature
+     * deep copy a feature dataMatrix values, size, and string representation
      * @param indexParent
      * @param indexNewFeature
      */
-    public void copyFeature(int indexParent, int indexNewFeature){
-        for(int i=0;i<numberOfFitnessCases;i++){
-            dataMatrix[i][indexNewFeature]=dataMatrix[i][indexParent];
+    public void copyFeature(int indexParent, int indexNewFeature) {
+        for (int i=0; i<numberOfFitnessCases; i++) {
+            dataMatrix[i][indexNewFeature] = dataMatrix[i][indexParent];
         }
         featureStrings[indexNewFeature] = featureStrings[indexParent];
         featureSizes[indexNewFeature] = featureSizes[indexParent];
     }
     
     /**
-     *
+     * zero a features dataMatrix values and update the features size to 3, 
+     * and string representation to (X0 - X0) 
      * @param indexNewFeature
      */
-    public void setFeatureToZero(int indexNewFeature){
-        for(int i=0;i<numberOfFitnessCases;i++){
-            dataMatrix[i][indexNewFeature]=0;
+    public void setFeatureToZero(int indexNewFeature) {
+        for (int i=0; i<numberOfFitnessCases; i++) {
+            dataMatrix[i][indexNewFeature] = 0;
         }
         featureStrings[indexNewFeature] = "(- X0 X0)";
         featureSizes[indexNewFeature] = 3;
@@ -457,35 +452,35 @@ public class EFMScaledData {
      * @param indexP2
      * @return
      */
-    public boolean checkValidity(int indexF1,int indexP1,int indexP2){
-        boolean valid =true;
-        for(int i=0;i<numberOfFitnessCases;i++){
+    public boolean checkValidity(int indexF1, int indexP1, int indexP2) {
+        boolean valid = true;
+        for (int i=0; i<numberOfFitnessCases; i++) {
             float fAux = (float)dataMatrix[i][indexF1];
-            if(Float.isInfinite(fAux) || Float.isNaN(fAux)){
+            if (Float.isInfinite(fAux) || Float.isNaN(fAux)) {
                 return false;
             }
         }
         double pcoeffP1 = computeCorrelation(indexF1,indexP1);
-        if(pcoeffP1<Math.abs(CORR_THRESHOLD)){
+        if (pcoeffP1 < Math.abs(CORR_THRESHOLD)) {
             if(indexP2!=-1) {
                 double pcoeffP2 = computeCorrelation(indexF1,indexP2);
                 if(pcoeffP2>=Math.abs(CORR_THRESHOLD)) {
                     valid = false;
                 }
             }
-        }else{
+        } else {
             valid = false;
         }
         return valid;
     }
     
-    private double computeCorrelation(int index1, int index2){
+    private double computeCorrelation(int index1, int index2) {
         double sumX = 0;
         double sumY = 0;
         double sumX2 = 0;
         double sumY2 = 0;
         double sumXY = 0;
-        for (int i=0;i<numberOfFitnessCases;i++){
+        for (int i=0;i<numberOfFitnessCases;i++) {
             sumX += dataMatrix[i][index1];
             sumY += dataMatrix[i][index2];
             sumX2 += Math.pow(dataMatrix[i][index1],2);
@@ -503,46 +498,28 @@ public class EFMScaledData {
     /**
      * @return the data matrix
      */
-    public double[][] getInputValues(){
-        return this.dataMatrix;
-    }
+    public double[][] getInputValues() { return dataMatrix; }
     
     /**
      * return a row of the data matrix
      * @param index
      * @return
      */
-    public double[] getRow(int index){
+    public double[] getRow(int index) {
         return dataMatrix[index];
     }
 
-    /**
-     * @return the vector of target values
-     */
-    public double[] getTargetValues(){
-        return this.target;
-    }
-        
-    /**
-     * @return maximum target value
-     */
-    public double getTargetMax() {
-        return target_max;
-    }
-
-    /**
-     * @return minimum target value
-     */
-    public double getTargetMin() {
-        return target_min;
-    }
+    public double[] getTargetValues() { return targets; }
+    public double getTargetMax() { return target_max; }
+    public double getTargetMin() { return target_min; }
 
     /**
      * @return the number of exemplars
      */
-    public int getNumberOfFitnessCases() {
-        return numberOfFitnessCases;
-    }
+    public int getNumberOfFitnessCases() { return numberOfFitnessCases; }
+    public int getNumberOfOriginalFeatures() { return numberOfOriginalFeatures; }
+    public int getNumberOfArchiveFeatures() { return numberOfArchiveFeatures; }
+    public int getNumberOfNewFeatures() { return numberOfNewFeatures; }
 
     /**
      * @return the total number Of Features
@@ -550,34 +527,13 @@ public class EFMScaledData {
     public int getNumberOfTotalFeatures() {
         return (numberOfOriginalFeatures + numberOfArchiveFeatures + numberOfNewFeatures);
     }
-     
-    /**
-     * @return the numberOfOriginalFeatures
-     */
-    public int getNumberOfOriginalFeatures() {
-        return numberOfOriginalFeatures;
-    }
-    
-    /**
-     * @return the numberOfArchiveFeatures
-     */
-    public int getNumberOfArchiveFeatures() {
-        return numberOfArchiveFeatures;
-    }
-    
-    /**
-     * @return the numberOfNewFeatures
-     */
-    public int getNumberOfNewFeatures() {
-        return numberOfNewFeatures;
-    }
 
     /**
      * return the string representation of a given feature
      * @param index
      * @return
      */
-    public String getFeatureString(int index){
+    public String getFeatureString(int index) {
         return featureStrings[index];
     }
 
@@ -586,7 +542,32 @@ public class EFMScaledData {
      * @param index
      * @return
      */
-    public int getFeatureSize(int index){
+    public int getFeatureSize(int index) {
         return featureSizes[index];
     }
+
+	public int getNumberOfDistinctTargetValues() {
+		if (numberOfDistinctTargets != null) {
+			return numberOfDistinctTargets;
+		}
+		
+		for (int i=0; i<targets.length; i++) {
+			targetSet.add(targets[i]);
+		}
+		numberOfDistinctTargets = targetSet.size();
+		
+		return numberOfDistinctTargets;
+	}
+	
+	public String[] getTargetStrings() {
+		String[] targetStrings = new String[getNumberOfDistinctTargetValues()];
+		
+		Object[] distinctTargets = targetSet.toArray();
+		for (int i=0; i<distinctTargets.length; i++) {
+			targetStrings[i] = distinctTargets[i].toString();
+		}
+		
+		return targetStrings;
+	}
+
 }

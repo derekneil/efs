@@ -98,7 +98,10 @@ public class TreeNode implements Serializable {
             return label;
 	}
 
-	// TODO have a clear distinction between prefix and infix trees, and the ability to specify either for output.
+	/*  TODO have a clear distinction between prefix and infix trees, 
+	 *  and the ability to specify either for output.
+	 */
+	
 	
 	/**
 	 * Generate string represent subtree rooted at this node
@@ -296,8 +299,10 @@ public class TreeNode implements Serializable {
 			} else if (arity == 2) {
 				return f.newInstance(c1, children.get(1).generate());
 			}
-		} catch (    SecurityException | NoSuchMethodException | IllegalArgumentException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
-			// TODO Auto-generated catch block
+		} catch (SecurityException | NoSuchMethodException 
+				| IllegalArgumentException  | InstantiationException 
+				| IllegalAccessException | InvocationTargetException e) {
+			;
 		}
 		throw new GPException("can't create function for node " + this.label);
 	}

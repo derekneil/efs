@@ -15,73 +15,72 @@
  * SOFTWARE.  
  *
  * @author Ignacio Arnaldo
- * 
+ * @Author Derek Nheiley
  */
 package evofmj.test;
 
-import evofmj.evaluation.java.EFMScaledData;
-import evofmj.genotype.Tree;
-import evofmj.genotype.TreeGenerator;
-import evofmj.math.Function;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
+import evofmj.evaluation.ConfusionMatrix;
+import evofmj.evaluation.java.EFMScaledData;
+import evofmj.genotype.Tree;
+import evofmj.genotype.TreeGenerator;
+import evofmj.math.Function;
+
 /**
  * Implements fitness evaluation for symbolic regression.
- * 
- * @author Ignacio Arnaldo
  */
 public class TestRegressionEFM {
     
-    private String pathToTestData;
     private EFMScaledData testData;    
-    private String pathToModel;
-    ArrayList<Tree> alFeatures; 
-    ArrayList<Double> alWeights;
-    double intercept, minTarget,maxTarget;
-    private boolean round;
+    private List<Tree> features; 
+    private List<Double> weights;
+    private double lassoIntercept = 0;
+    public double minTarget, maxTarget;
+    public boolean isNomicalClasses = false;
+    public ConfusionMatrix matrix;
     
     /**
      * Test models obtained with the EFM method
      * Complex features are mapped to expression trees, evaluated via the 
      * standard inorder parsing used in tree-based Genetic Programming
-     * @param aPathToTestData
-     * @param aPathToModel
-     * @param aRound
+     * @param csvTestDataPath
+     * @param pathToModel
      * @throws java.io.IOException
      * @throws java.lang.ClassNotFoundException
      */
-    public TestRegressionEFM( String aPathToTestData, String aPathToModel, boolean aRound) throws IOException, ClassNotFoundException {
-        pathToTestData = aPathToTestData;
-        pathToModel = aPathToModel;
-        round = aRound;
-        testData = new EFMScaledData(pathToTestData);
-        alFeatures = new ArrayList<Tree>(); 
-        alWeights = new ArrayList<Double>();
-        intercept = 0;
-        readModel();
+    public TestRegressionEFM( String csvTestDataPath, String pathToModel) throws IOException {
+        testData = new EFMScaledData(csvTestDataPath);
+        features = new ArrayList<Tree>(); 
+        weights = new ArrayList<Double>();
+        lassoIntercept = 0;
+        readModel(pathToModel);
     }
 
-    /*
+    /**
     * auxiliary class to read a model from file
     */
-    private void readModel() throws IOException, ClassNotFoundException{
+    private void readModel(String pathToModel) throws IOException {
         
         Scanner sc = new Scanner(new FileReader(pathToModel));
+        
         String lineMinMax = sc.nextLine();
         String[] minMax = lineMinMax.split(",");
         minTarget = Double.valueOf(minMax[0]);
         maxTarget = Double.valueOf(minMax[1]);
-        intercept = Double.valueOf(sc.nextLine());
+        
+        lassoIntercept = Double.valueOf(sc.nextLine());
+        
         while(sc.hasNextLine()){
             String sAux = sc.nextLine();
             sAux = sAux.trim();
             String[] tokens = sAux.split(" ");
             double wAux = Double.valueOf(tokens[1]);
-            alWeights.add(wAux);
+            weights.add(wAux);
             
             String featureStringAux = "";
             for(int i=3;i<tokens.length;i++){
@@ -89,8 +88,9 @@ public class TestRegressionEFM {
             }
             featureStringAux = featureStringAux.trim();
             Tree g = TreeGenerator.generateTree(featureStringAux);
-            alFeatures.add(g);
+            features.add(g);
         }
+        sc.close();
     }
     
    
@@ -98,40 +98,76 @@ public class TestRegressionEFM {
      * @see eval an EFM model
      */
     public void evalModel() {
-        double sqDiff = 0;
-        double absDiff = 0;
         double[][] inputValuesAux = testData.getInputValues();
         double[] targets = testData.getTargetValues();
+        double sqDiff = 0;
+        double absDiff = 0;
         
-        for (int i = 0; i < testData.getNumberOfFitnessCases(); i++) {
+        int cases = testData.getNumberOfFitnessCases();
+        int classes = 0;
+        if (isNomicalClasses) {
+        	classes = testData.getNumberOfDistinctTargetValues();
+        	matrix = new ConfusionMatrix(classes, testData.getTargetStrings());
+        }
+        	
+        double startTime = System.currentTimeMillis();
+        
+		for (int i = 0; i < cases; i++) {
+        	double prediction = lassoIntercept;
             List<Double> d = new ArrayList<Double>();
             for (int j = 0; j < testData.getNumberOfOriginalFeatures(); j++) {
                 d.add(j, (double)inputValuesAux[i][j]);
             }
-            double prediction = intercept;
-            for (int j = 0; j < alFeatures.size(); j++) {
-                Tree genotype = (Tree) alFeatures.get(j);
+            
+            for (int j = 0; j < features.size(); j++) {
+                Tree genotype = (Tree) features.get(j);
                 Function func = genotype.generate();
                 double funcOutput = func.eval(d);
                 if(Double.isNaN(funcOutput) || Double.isInfinite(funcOutput)){
                     funcOutput=0;
                 }
-                if(alWeights.get(j)!=0){
-                    prediction += alWeights.get(j) * funcOutput;
+                if(weights.get(j)!=0){
+                    prediction += weights.get(j) * funcOutput;
                 }
-                func = null;
             }
-            if(prediction<minTarget) prediction = minTarget;
-            if(prediction>maxTarget) prediction = maxTarget;
-            if (round) prediction = Math.round(prediction);
+            
+            //TODO isn't this kind of cheating for predicting the min and max targets?
+            if (prediction<minTarget) { prediction = minTarget; }
+            if (prediction>maxTarget) { prediction = maxTarget; }
+            
+            //roundPrediction can be used for nominal classes represented by integers
+            if (isNomicalClasses) { prediction = Math.round(prediction); }
+            
             d.clear();
-            sqDiff += Math.pow(targets[i] - prediction, 2);
-            absDiff += Math.abs(targets[i] - prediction);
+            double diff = targets[i] - prediction;
+			sqDiff += Math.pow(diff, 2);
+            absDiff += Math.abs(diff);
+            
+            if (isNomicalClasses) {
+            	matrix.set((int)targets[i], (int)prediction);
+            }
         }
-        sqDiff = sqDiff / testData.getNumberOfFitnessCases();
-        absDiff= absDiff / testData.getNumberOfFitnessCases();
-        System.out.println("MSE: " + sqDiff);
-        System.out.println("MAE: " + absDiff);
+		
+		double evaluationTime = (System.currentTimeMillis() - startTime)/1000.0;
+		sqDiff = sqDiff / cases;
+        absDiff= absDiff / cases;
+        
+        System.out.printf("Time taken to evaluate model: %.2f seconds\n", evaluationTime);
+        System.out.println("\n=== Summary ===\n");
+        
+        if (isNomicalClasses) {
+        	matrix.printOverallAccuracy();
+        }
+        System.out.printf("Mean squared error                       %.4f\n", sqDiff);
+        System.out.printf("Root mean squared error                  %.4f\n", Math.sqrt(sqDiff));
+        System.out.printf("Mean absolute error                      %.4f\n", absDiff);
+        
+        System.out.printf("Total Number of Instances         %d\n", cases);
+        
+        if (isNomicalClasses) {
+        	matrix.printAccuracyByClass();
+	        matrix.print("\n=== Confusion Matrix ===\n");
+        }
     }
 
 }
